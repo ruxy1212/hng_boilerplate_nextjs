@@ -34,9 +34,6 @@ const Register = () => {
   const [isLoading, startTransition] = useTransition();
   const [showPassword, setShowPassword] = useState(false);
 
-  if (status === "authenticated") {
-    router.push("/dashboard");
-  }
   useEffect(() => {
     const fetchApiUrl = async () => {
       try {
@@ -67,7 +64,21 @@ const Register = () => {
   const onSubmit = async (values: z.infer<typeof RegisterSchema>) => {
     startTransition(async () => {
       await registerUser(values).then(async (data) => {
+        const { email, password } = values;
+        console.log(data);
+        // if (data.status === 201) {
+        //   router.push("/register/organisation");
+        // }
         if (data.status === 201) {
+          await signIn(
+            "credentials",
+            {
+              email,
+              password,
+              redirect: false,
+            },
+            { callbackUrl: "/register/organisation" },
+          );
           router.push("/register/organisation");
         }
 

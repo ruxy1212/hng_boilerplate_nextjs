@@ -1,11 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import axios from "axios";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next-nprogress-bar";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Button } from "~/components/ui/button";
+import CustomButton from "~/components/common/common-button/common-button";
+import LoadingSpinner from "~/components/miscellaneous/loading-spinner";
 import {
   Form,
   FormControl,
@@ -22,27 +27,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import { useToast } from "~/components/ui/use-toast";
+import { getApiUrl } from "~/utils/getApiUrl";
 
 const formSchema = z.object({
-  fullname: z.string().min(2, {
-    message: "Fullname must be at least 2 characters.",
-  }),
-  email: z.string().email({
-    message: "Email must be a valid email address.",
-  }),
-  password: z.string().min(2, {
-    message: "Password must be at least 2 characters.",
-  }),
-  companyName: z.string().min(2, {
+  name: z.string().min(2, {
     message: "Company name must be at least 2 characters.",
   }),
-  companyEmail: z.string().email({
+  email: z.string().email({
     message: "Company email must be a valid email address.",
   }),
   industry: z.string().min(1, {
     message: "Please select an industry.",
   }),
-  organizationType: z.string().min(1, {
+  type: z.string().min(1, {
     message: "Please select an organization type.",
   }),
   country: z.string().min(1, {
@@ -59,9 +57,88 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 function Organisation() {
+  const { data: session } = useSession();
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiUrl, setApiUrl] = useState("");
+  const router = useRouter();
+  const { toast } = useToast();
+  useEffect(() => {
+    const fetchApiUrl = async () => {
+      try {
+        const url = await getApiUrl();
+        setApiUrl(url);
+      } catch {
+        toast({
+          title: "Error",
+          description: "Failed to fetch API URL",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchApiUrl();
+  }, [toast]);
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      type: "",
+      industry: "",
+      country: "",
+      state: "",
+      address: "",
+    },
   });
+
+  const onSubmit = async (data: FormData) => {
+    setIsLoading(true);
+    const payload = {
+      ...data,
+      user_id: session?.user?.id,
+      description: "n/a",
+    };
+    try {
+      await axios.post(`${apiUrl}/api/v1/organizations`, payload, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      });
+      toast({
+        title: "Organization created successfully",
+        description: "Continue to dashboard",
+      });
+      router.push("/dashboard");
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 422) {
+          const validationErrors = error.response.data.errors || [];
+          form.clearErrors();
+          validationErrors.forEach(
+            (err: { field: string; message: string }) => {
+              form.setError(err.field as keyof FormData, {
+                type: "manual",
+                message: err.message,
+              });
+            },
+          );
+        } else {
+          toast({
+            title: "Error occurred",
+            description:
+              error.response.data.message ||
+              "Failed to submit the form. Please try again.",
+          });
+        }
+      } else {
+        toast({
+          title: "Error occured",
+          description: "An unexpected error occurred.",
+        });
+      }
+    }
+    setIsLoading(false);
+  };
 
   return (
     <>
@@ -77,10 +154,10 @@ function Organisation() {
 
         <div className="mx-auto md:w-2/4">
           <Form {...form}>
-            <form className="space-y-6">
+            <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
               <FormField
                 control={form.control}
-                name="companyName"
+                name="name"
                 render={({ field }) => (
                   <FormItem className="flex flex-col gap-2">
                     <div>
@@ -89,6 +166,8 @@ function Organisation() {
                         <Input
                           placeholder="Enter your company name"
                           {...field}
+                          value={field.value || ""}
+                          onChange={(e) => field.onChange(e.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -98,7 +177,7 @@ function Organisation() {
               />
               <FormField
                 control={form.control}
-                name="companyEmail"
+                name="email"
                 render={({ field }) => (
                   <FormItem className="flex flex-col gap-2">
                     <div>
@@ -107,6 +186,8 @@ function Organisation() {
                         <Input
                           placeholder="Enter your email address"
                           {...field}
+                          value={field.value || ""}
+                          onChange={(e) => field.onChange(e.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -144,7 +225,7 @@ function Organisation() {
                 />
                 <FormField
                   control={form.control}
-                  name="organizationType"
+                  name="type"
                   render={({ field }) => (
                     <FormItem className="flex w-full flex-col gap-2">
                       <div className="w-full">
@@ -232,6 +313,8 @@ function Organisation() {
                         <Input
                           placeholder="Enter your company address"
                           {...field}
+                          value={field.value || ""}
+                          onChange={(e) => field.onChange(e.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -239,9 +322,22 @@ function Organisation() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full">
-                Create Account
-              </Button>
+              <CustomButton
+                type="submit"
+                variant="primary"
+                size="default"
+                className="w-full py-6"
+                isDisabled={isLoading}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-x-2">
+                    <span className="animate-pulse">Processing...</span>{" "}
+                    <LoadingSpinner className="size-4 animate-spin sm:size-5" />
+                  </span>
+                ) : (
+                  <span>Create Account</span>
+                )}
+              </CustomButton>
               <div className="flex justify-center gap-2">
                 <p className="text-sm">Already Have An Account?</p>
                 <Link className="text-sm text-orange-500" href={"#"}>
